@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-docx
+python-pptx
+openpyxl
+python-frontmatter
+sqlite-vec
+sentence-transformers
+anthropic
+httpx
+python-dotenv
+pytest
