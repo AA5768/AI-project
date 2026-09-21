@@ -5,10 +5,13 @@ pydantic-settings
 python-docx
 python-pptx
 openpyxl
+XlsxWriter
 python-frontmatter
+PyYAML
 sqlite-vec
 sentence-transformers
-anthropic
+anthropic>=1.0
 httpx
 python-dotenv
+truststore
 pytest
