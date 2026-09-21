@@ -23,7 +23,12 @@ def conn(ingested_db):
 
 
 def _chunk(**overrides) -> RetrievedChunk:
-    """A synthetic chunk for the pure-function confidence tests."""
+    """A synthetic chunk for the pure-function confidence tests.
+
+    relative_quality defaults to enrichment_confidence, i.e. a corpus whose best
+    document is enriched at 1.0. search() derives it per corpus; these tests
+    only care that a worse-enriched source scores lower than a better one.
+    """
     defaults = dict(
         chunk_id=1,
         document_id=1,
@@ -43,7 +48,9 @@ def _chunk(**overrides) -> RetrievedChunk:
         keyword=0.5,
         score=0.7,
     )
-    return RetrievedChunk(**{**defaults, **overrides})
+    merged = {**defaults, **overrides}
+    merged.setdefault("relative_quality", merged["enrichment_confidence"])
+    return RetrievedChunk(**merged)
 
 
 # ------------------------------------------------------------------- retrieval
@@ -125,6 +132,46 @@ def test_low_quality_sources_drag_confidence_down():
     trusted = [_chunk(chunk_id=1, enrichment_confidence=0.9)]
     untrusted = [_chunk(chunk_id=1, enrichment_confidence=0.25, quality_flags=["sparse"])]
     assert compute_confidence(untrusted).value < compute_confidence(trusted).value
+
+
+def test_confidence_does_not_move_when_only_the_enrichment_scale_changes():
+    """The same corpus ingested two ways must gate the same way.
+
+    Claude enrichment scores this corpus at a mean of 0.82 and the heuristic
+    fallback at 0.46 -- the documents are identical, the enricher's self-belief
+    is not. When source trust used the raw figure, every confidence fell by
+    about 0.08 on the heuristic path and two answerable golden-set questions
+    crossed the 0.55 threshold into routing. The failure was invisible locally,
+    because local ingests used a key and CI did not.
+    """
+    shape = [0.89, 0.82, 0.60]  # relative quality of three sources, best first
+
+    values = []
+    for best in (0.89, 0.50):  # the Claude scale, then the heuristic one
+        chunks = [
+            _chunk(
+                chunk_id=index,
+                document_id=index,
+                enrichment_confidence=round(quality / 0.89 * best, 4),
+                relative_quality=round(quality / 0.89, 4),
+            )
+            for index, quality in enumerate(shape)
+        ]
+        values.append(compute_confidence(chunks).value)
+
+    assert values[0] == values[1]
+
+
+def test_quality_reference_is_the_corpus_maximum(conn):
+    from app.retrieval.search import quality_reference
+
+    best = conn.execute("SELECT MAX(enrichment_confidence) AS m FROM documents").fetchone()["m"]
+    assert quality_reference(conn) == pytest.approx(best)
+
+    hits = search(conn, "what is blocking the end effector pilot?")
+    assert hits
+    assert max(c.relative_quality for c in hits) <= 1.0
+    assert all(c.relative_quality >= 0.0 for c in hits)
 
 
 def test_corroboration_rewards_agreement_across_documents():

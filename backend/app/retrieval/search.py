@@ -67,6 +67,7 @@ class RetrievedChunk:
     semantic: float  # normalised cosine, 0..1
     keyword: float  # rank-derived FTS score, 0..1
     score: float  # fused ranking score, 0..1
+    relative_quality: float = 1.0  # enrichment_confidence against this corpus's best
 
     @property
     def cosine(self) -> float:
@@ -173,6 +174,30 @@ def _load_chunks(conn: sqlite3.Connection, chunk_ids: list[int]) -> dict[int, sq
     return {int(row["chunk_id"]): row for row in rows}
 
 
+def quality_reference(conn: sqlite3.Connection) -> float:
+    """The best enrichment confidence in this corpus, used to make the source
+    quality signal relative rather than absolute.
+
+    Enrichment confidence is not comparable across backends. Claude enrichment
+    scores this corpus at 0.13-0.89 (mean 0.82); the heuristic fallback scores
+    the *same* corpus at 0.13-0.50 (mean 0.46), because it is deliberately
+    unsure of itself, not because the documents got worse. Feeding the raw value
+    into a score that a fixed threshold then gates means the answer-versus-route
+    decision depends on which flag the corpus was ingested with: measured over
+    the golden set, every confidence fell by about 0.08 on the heuristic path
+    and two answerable questions crossed the threshold into routing.
+
+    Dividing by the corpus maximum keeps what the signal is for -- a sparse,
+    unattributed scratch file should still rank below a well-structured spec --
+    while dropping the offset that only says which enricher ran.
+    """
+    row = conn.execute(
+        "SELECT MAX(enrichment_confidence) AS best FROM documents"
+    ).fetchone()
+    best = float(row["best"] or 0.0)
+    return best if best > 0 else 1.0
+
+
 def _cosine_from_blob(blob: bytes | None, vector: list[float]) -> float:
     """Similarity for a chunk the KNN arm did not return (keyword-only hit)."""
     if not blob:
@@ -204,6 +229,7 @@ def search(
     keyword_hits = _keyword_candidates(conn, query_text, candidate_k)
 
     rows = _load_chunks(conn, list({*semantic_hits, *keyword_hits}))
+    best_quality = quality_reference(conn)
 
     results: list[RetrievedChunk] = []
     for chunk_id, row in rows.items():
@@ -212,6 +238,7 @@ def search(
             cosine = _cosine_from_blob(row["embedding"], vector)
         semantic = _normalise_similarity(cosine)
         keyword = keyword_hits.get(chunk_id, 0.0)
+        enrichment_confidence = float(row["enrichment_confidence"])
         results.append(
             RetrievedChunk(
                 chunk_id=chunk_id,
@@ -227,10 +254,11 @@ def search(
                 topic_domain=row["topic_domain"],
                 priority=row["priority"],
                 quality_flags=json.loads(row["quality_flags"] or "[]"),
-                enrichment_confidence=float(row["enrichment_confidence"]),
+                enrichment_confidence=enrichment_confidence,
                 semantic=round(semantic, 4),
                 keyword=round(keyword, 4),
                 score=round(SEMANTIC_WEIGHT * semantic + KEYWORD_WEIGHT * keyword, 4),
+                relative_quality=round(min(1.0, enrichment_confidence / best_quality), 4),
             )
         )
 
@@ -250,8 +278,11 @@ def compute_confidence(chunks: list[RetrievedChunk]) -> ConfidenceSignal:
       support         the next-best chunks do too (one lucky hit is not enough)
       corroboration   more than one document says it
       source_trust    the documents it came from were enriched confidently
-                      (a stale, unattributed scratch file scores 0.29 and has
-                      to drag an otherwise strong lexical match down)
+                      *relative to the rest of this corpus* -- a stale,
+                      unattributed scratch file has to drag an otherwise strong
+                      lexical match down. quality_reference() explains why the
+                      raw enrichment confidence cannot be used here: it encodes
+                      which enricher ran as well as how good the document is.
 
     This is deliberately computed before synthesis: below the threshold we route
     to a human without asking the model to write anything, so there is no weak
@@ -276,7 +307,7 @@ def compute_confidence(chunks: list[RetrievedChunk]) -> ConfidenceSignal:
 
     weight_total = sum(c.score for c in ranked[:5]) or 1.0
     source_trust = (
-        sum(c.enrichment_confidence * c.score for c in ranked[:5]) / weight_total
+        sum(c.relative_quality * c.score for c in ranked[:5]) / weight_total
     )
 
     value = round(
