@@ -26,16 +26,18 @@ gets dropped, but the build order follows the architecture (data → API → UI)
 
 ## Invented organization context
 
-**Meridian Robotics** — ~120-person industrial robotics company (warehouse automation arms + fleet
-software). Departments: Engineering, Product, Sales/CS, Operations, Finance/Ops. Use this org for both the
-transcripts and the Office documents so the two corpora cross-reference the same people, projects, and
-decisions (e.g., a decision made in a meeting later shows up half-implemented in a slide deck, or a
+**Meridian Microsystems** — ~120-person semiconductor equipment automation company. Three product lines:
+**Helios-3**, a 300 mm atmospheric wafer-handling robot and EFEM; **Kestrel-2**, a tri-temperature device
+test handler that docks to back-end ATE; and **Vantage**, an equipment-connectivity and OEE SaaS
+(SECS/GEM, EDA/Interface A, SEMI E10). Departments: Engineering, Product, Sales/CS, Operations,
+Finance, People. Use this org for both the transcripts and the Office documents so the two corpora
+cross-reference the same people, projects, and decisions (e.g., a decision made in a meeting later shows up half-implemented in a slide deck, or a
 spreadsheet contradicts something a transcript says — this is what makes traceability and correction-capture
 meaningful in Part 1/2).
 
 Invent ~10-15 recurring people across departments with realistic-but-fake names, titles, and email handles,
-and 4-6 running projects/topics (e.g., a warehouse robot arm program, a fleet-management SaaS release, a
-customer escalation, a hiring push, a cost-reduction initiative). Reuse these consistently across all
+and 4-6 running projects/topics (e.g., the wafer-handler program, a connectivity software release, a
+customer particle excursion, a second-source/allocation squeeze, a hiring push, a COGS-down initiative). Reuse these consistently across all
 documents so cross-document search/traceability has real signal.
 
 ---
