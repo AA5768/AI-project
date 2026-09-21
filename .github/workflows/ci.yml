@@ -1,0 +1,90 @@
+name: CI
+
+# Runs with no ANTHROPIC_API_KEY on purpose. Enrichment falls back to the
+# deterministic heuristics and synthesis to the extractive path, so the whole
+# pipeline -- parse, chunk, embed, retrieve, score, route -- is exercised for
+# free and without a secret.
+#
+# The ingest step is not a convenience. The eval gate reads the enrichment
+# confidence that retrieval weights sources by, and a locally Claude-enriched
+# database produces different weights from a heuristic one. A gate that scores
+# differently here than it did on the developer's machine is not a gate, so CI
+# builds the database it is about to grade, from the corpus in this commit.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ~90 MB of MiniLM weights. Keyed on the model name in config.py so a
+      # model change invalidates it instead of silently reusing the old vectors.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-${{ runner.os }}
+
+      - name: Ingest the corpus (heuristic enrichment, no API key)
+        run: python -m app.ingestion.pipeline --reset --no-llm
+
+      - name: Verify traceability chains
+        run: python -m scripts.inspect_db
+
+      - name: Unit and API tests
+        run: python -m pytest tests -q
+
+      - name: Golden-set answer-quality gate
+        run: python -m eval.run_eval --offline --json eval-results.json
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: backend/eval-results.json
+          if-no-files-found: ignore
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
