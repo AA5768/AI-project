@@ -11,6 +11,7 @@ PyYAML
 sqlite-vec
 sentence-transformers
 anthropic>=1.0
+mcp>=2.0
 httpx
 python-dotenv
 truststore
