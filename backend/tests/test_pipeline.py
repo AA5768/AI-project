@@ -183,10 +183,33 @@ def test_resolve_person_refuses_to_guess_between_two_matches(tmp_path):
         assert resolve_person(conn, "Dana") == resolve_person(conn, "Dana Okafor")
 
         upsert_person(conn, "Dana Whitfield")
-        ambiguous = resolve_person(conn, "Dana")
-        assert conn.execute(
-            "SELECT name FROM people WHERE id = ?", (ambiguous,)
-        ).fetchone()["name"] == "Dana"
+        assert resolve_person(conn, "Dana") is None
+    finally:
+        conn.close()
+
+
+def test_resolve_person_never_invents_a_person(tmp_path):
+    """A model-derived owner that is not a known person yields no row and no edge.
+
+    "Product" is a department, not someone routing can hand a question to.
+    Letting it become a people row would put a fabricated name at the end of the
+    chunks -> documents -> document_people -> people chain the routing rationale
+    is built from.
+    """
+    from app.db.connection import init_db
+
+    db = tmp_path / "people.db"
+    init_db(db)
+    conn = get_connection(db)
+    try:
+        upsert_person(conn, "Dana Okafor")
+        before = conn.execute("SELECT COUNT(*) AS n FROM people").fetchone()["n"]
+
+        for derived in ("Product", "Engineering", "TBD", "the tester vendor", ""):
+            assert resolve_person(conn, derived) is None
+
+        after = conn.execute("SELECT COUNT(*) AS n FROM people").fetchone()["n"]
+        assert after == before
     finally:
         conn.close()
 

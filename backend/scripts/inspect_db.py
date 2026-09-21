@@ -94,20 +94,38 @@ def main() -> int:
          "SELECT COUNT(*) FROM documents WHERE attendees_or_author IN ('[]','','null')"),
         # Owners are name-resolved onto existing people ("Dana" -> "Dana Okafor"),
         # so check the link exists rather than that the literal string is a person.
+        # Only owners that do name a known person are required to have an edge:
+        # enrichment also yields owners that are departments or placeholders, and
+        # those deliberately stay text (see repository.resolve_person).
         ("owned actions with no action_owner link",
-         "SELECT COUNT(*) FROM ("
-         "  SELECT DISTINCT document_id FROM action_items "
-         "  WHERE owner IS NOT NULL AND TRIM(owner) <> '' "
-         "  EXCEPT SELECT document_id FROM document_people WHERE role = 'action_owner')"),
+         "SELECT COUNT(*) FROM action_items a "
+         "WHERE a.owner IS NOT NULL AND TRIM(a.owner) <> '' "
+         "  AND EXISTS (SELECT 1 FROM people p WHERE p.name = a.owner COLLATE NOCASE "
+         "              OR p.name LIKE a.owner || ' %') "
+         "  AND NOT EXISTS (SELECT 1 FROM document_people dp "
+         "                  JOIN people p2 ON p2.id = dp.person_id "
+         "                  WHERE dp.document_id = a.document_id AND dp.role = 'action_owner' "
+         "                    AND (p2.name = a.owner COLLATE NOCASE "
+         "                         OR p2.name LIKE a.owner || ' %'))"),
+        # Informational: a department or a "TBD" recorded as an owner. Visible on
+        # the action item, absent from the routing graph, which is the point.
+        ("action owners that are not people (kept as text)",
+         "SELECT COUNT(DISTINCT a.owner) FROM action_items a "
+         "WHERE a.owner IS NOT NULL AND TRIM(a.owner) <> '' "
+         "  AND NOT EXISTS (SELECT 1 FROM people p WHERE p.name = a.owner COLLATE NOCASE "
+         "                  OR p.name LIKE a.owner || ' %')"),
         ("document_people rows with a dangling person",
          "SELECT COUNT(*) FROM document_people dp LEFT JOIN people p ON p.id = dp.person_id "
          "WHERE p.id IS NULL"),
     ]
+    # Corpus properties worth seeing, not bugs: a deliberately unattributed
+    # document, and an owner the source named as a team rather than a person.
+    INFORMATIONAL = ("no author or attendee", "are not people")
+
     failures = 0
     for label, sql in checks:
         count = _scalar(conn, sql)
-        # An unattributed document is a corpus property worth seeing, not a bug.
-        fatal = count > 0 and "no author or attendee" not in label
+        fatal = count > 0 and not any(marker in label for marker in INFORMATIONAL)
         failures += 1 if fatal else 0
         mark = "FAIL" if fatal else ("warn" if count else "ok  ")
         print(f"  [{mark}] {label:<42} {count}")

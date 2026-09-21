@@ -43,18 +43,26 @@ def upsert_person(
     return int(row["id"])
 
 
-def resolve_person(conn: sqlite3.Connection, name: str) -> int:
-    """Map a loosely-written name onto an existing person where that is unambiguous.
+def resolve_person(conn: sqlite3.Connection, name: str) -> int | None:
+    """Map a loosely-written name onto an *existing* person, or give up.
 
     Enrichment yields owners the way the source wrote them -- "Dana will produce
     the RCA" gives "Dana", whose attendee record says "Dana Okafor". Creating a
     second row would split one person in two and let Part 2 route to a half-name.
     A partial name is only merged when exactly one existing person matches; two
-    Danas means we keep the ambiguous name as its own row rather than guess.
+    Danas is ambiguous.
+
+    This never creates a person. Only the verbatim attendee/author line and
+    data/people.yaml may do that, because they are the only places a name is
+    stated by the source rather than derived by a model. An owner that is really
+    a department ("Product"), a team, or a bare "TBD" therefore stays a string on
+    the action_items row and never becomes a node routing can walk to. Returning
+    None loses an edge; the alternative loses the guarantee that every routee is
+    a real person the corpus actually names.
     """
     name = name.strip()
     if not name:
-        raise ValueError("cannot resolve an empty person name")
+        return None
 
     exact = conn.execute(
         "SELECT id FROM people WHERE name = ? COLLATE NOCASE", (name,)
@@ -72,7 +80,7 @@ def resolve_person(conn: sqlite3.Connection, name: str) -> int:
         if len(candidates) == 1:
             return candidates[0]
 
-    return upsert_person(conn, name)
+    return None
 
 
 def link_person(conn: sqlite3.Connection, document_id: int, person_id: int, role: str) -> None:
@@ -199,7 +207,9 @@ def persist_document(
         link_person(conn, document_id, upsert_person(conn, name), role)
     for action in enrichment.action_items:
         if action.owner and action.owner.strip():
-            link_person(conn, document_id, resolve_person(conn, action.owner), "action_owner")
+            person_id = resolve_person(conn, action.owner)
+            if person_id is not None:
+                link_person(conn, document_id, person_id, "action_owner")
 
     return document_id
 

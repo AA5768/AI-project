@@ -310,6 +310,26 @@ def route(
         return None
 
     chunk = candidate.best_chunk
+
+    # The floor above is the corpus-wide best match; this one is the passage the
+    # rationale will actually quote, and they are not the same chunk. "What is
+    # our parental leave policy?" cleared the first check at 0.27 and then built
+    # its case on a 0.22 paragraph about test-cell integration, naming its
+    # author -- the fabrication the check was written to stop, arriving through
+    # the gap between the chunk that passed it and the chunk that was used.
+    #
+    # Ranking is a fused score, so a chunk can lead on keyword overlap alone
+    # with a semantic similarity of zero. A routee justified by a passage that
+    # is not about the question is worse than no routee: it sends a real person
+    # a question they have no reason to be able to answer, with a quotation
+    # that says so.
+    if chunk.semantic < MIN_ATTRIBUTION_SIMILARITY:
+        logger.info(
+            "no routee for %r: best attributable passage is %s at similarity %.2f",
+            query_text[:80], chunk.source_path, chunk.semantic,
+        )
+        return None
+
     return RoutingDecision(
         person=candidate.name,
         person_id=candidate.person_id,
