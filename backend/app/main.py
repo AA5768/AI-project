@@ -2,12 +2,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import corrections, documents, gaps, metrics, query, routing
+from app.config import settings
 
-app = FastAPI(title="Meridian Robotics Knowledge API")
+# Any localhost port, unless an explicit allowlist is configured. The dev server
+# does not own a fixed port -- Vite silently moves to 5174 when 5173 is taken --
+# and pinning one origin makes that look like the API is down. No credentials
+# are accepted (allow_credentials stays off), so a permissive local origin grants
+# a page nothing it could not get by calling the API directly.
+LOCALHOST_ORIGIN_RE = r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+
+app = FastAPI(title="Meridian Microsystems Knowledge API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=None if settings.cors_origins else LOCALHOST_ORIGIN_RE,
     allow_methods=["*"],
     allow_headers=["*"],
 )
