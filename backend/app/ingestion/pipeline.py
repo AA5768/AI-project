@@ -83,12 +83,17 @@ def parse_file(path: Path, project_root: Path) -> Document:
     return parser(path, source_path=_relative(path, project_root))
 
 
+class EnrichmentDowngrade(RuntimeError):
+    """A heuristic run would overwrite Claude-enriched documents in place."""
+
+
 def run(
     data_dir: Path | None = None,
     db_path: Path | None = None,
     use_llm: bool | None = None,
     reset: bool = False,
     limit: int | None = None,
+    allow_downgrade: bool = False,
 ) -> dict:
     data_dir = Path(data_dir or settings.data_dir)
     db_path = Path(db_path or settings.db_path)
@@ -104,6 +109,24 @@ def run(
     method = ("llm" if settings.has_api_key else "heuristic") if use_llm is None else (
         "llm" if use_llm else "heuristic"
     )
+
+    # persist_document replaces a document in place, so a heuristic pass over a
+    # Claude-enriched database silently rewrites every summary, decision and
+    # action item at roughly half the confidence -- and the only visible trace is
+    # documents.enrichment_method, which nobody re-reads after an ingest that
+    # printed no errors. Refuse instead, and say how to mean it.
+    if method == "heuristic" and not allow_downgrade:
+        downgrades = conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE enrichment_method = 'llm'"
+        ).fetchone()["n"]
+        if downgrades:
+            conn.close()
+            raise EnrichmentDowngrade(
+                f"{downgrades} document(s) in {db_path} are Claude-enriched; a heuristic "
+                "run would overwrite them in place at a lower confidence. Re-run with "
+                "--reset to rebuild the database from scratch, or --allow-downgrade to "
+                "overwrite deliberately."
+            )
     started = time.perf_counter()
     run_id = repo.start_ingestion_run(conn, str(data_dir), method)
     conn.commit()
@@ -213,6 +236,10 @@ def main() -> None:
     parser.add_argument("--db", type=Path, default=None, dest="db_path")
     parser.add_argument("--reset", action="store_true", help="Delete the DB file first.")
     parser.add_argument("--limit", type=int, default=None, help="Ingest only the first N files.")
+    parser.add_argument(
+        "--allow-downgrade", action="store_true",
+        help="Permit a heuristic run to overwrite Claude-enriched documents in place.",
+    )
     llm_group = parser.add_mutually_exclusive_group()
     llm_group.add_argument(
         "--llm", dest="use_llm", action="store_true", default=None,
@@ -230,13 +257,17 @@ def main() -> None:
         format="%(levelname)-7s %(message)s",
     )
 
-    summary = run(
-        data_dir=args.data_dir,
-        db_path=args.db_path,
-        use_llm=args.use_llm,
-        reset=args.reset,
-        limit=args.limit,
-    )
+    try:
+        summary = run(
+            data_dir=args.data_dir,
+            db_path=args.db_path,
+            use_llm=args.use_llm,
+            reset=args.reset,
+            limit=args.limit,
+            allow_downgrade=args.allow_downgrade,
+        )
+    except EnrichmentDowngrade as exc:
+        raise SystemExit(f"Refusing to ingest: {exc}")
 
     print("\nIngestion summary")
     print("-" * 52)

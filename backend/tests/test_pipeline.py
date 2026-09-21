@@ -13,7 +13,7 @@ from app.db.repository import resolve_person, upsert_person
 from app.enrichment.enrich import score_confidence
 from app.enrichment.heuristics import enrich_heuristically
 from app.ingestion.parsers.transcript_parser import parse_transcript
-from app.ingestion.pipeline import run
+from app.ingestion.pipeline import EnrichmentDowngrade, run
 
 
 @pytest.fixture(scope="module")
@@ -212,6 +212,57 @@ def test_resolve_person_never_invents_a_person(tmp_path):
         assert after == before
     finally:
         conn.close()
+
+
+def test_heuristic_run_refuses_to_overwrite_llm_enrichment(tmp_path, corpus, _model_warm):
+    """--no-llm over a Claude-enriched DB is a silent data loss, so it is an error.
+
+    persist_document replaces a document in place. Without this guard the second
+    command below rewrites every summary and action item at heuristic confidence
+    and exits 0, which is indistinguishable from a successful re-index.
+    """
+    db = tmp_path / "downgrade.db"
+    run(data_dir=corpus, db_path=db, use_llm=False, reset=True)
+
+    conn = get_connection(db)
+    try:
+        conn.execute("UPDATE documents SET enrichment_method = 'llm'")
+        conn.commit()
+        before = conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE enrichment_method = 'llm'"
+        ).fetchone()["n"]
+    finally:
+        conn.close()
+
+    with pytest.raises(EnrichmentDowngrade, match="--reset"):
+        run(data_dir=corpus, db_path=db, use_llm=False)
+
+    conn = get_connection(db)
+    try:
+        # the refusal happens before anything is written
+        assert conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE enrichment_method = 'llm'"
+        ).fetchone()["n"] == before
+    finally:
+        conn.close()
+
+    # ...and is overridable when it is what you meant.
+    summary = run(data_dir=corpus, db_path=db, use_llm=False, allow_downgrade=True)
+    assert summary["enrichment_method"] == "heuristic"
+
+
+def test_reset_clears_the_downgrade_guard(tmp_path, corpus, _model_warm):
+    db = tmp_path / "reset.db"
+    run(data_dir=corpus, db_path=db, use_llm=False, reset=True)
+    conn = get_connection(db)
+    try:
+        conn.execute("UPDATE documents SET enrichment_method = 'llm'")
+        conn.commit()
+    finally:
+        conn.close()
+
+    summary = run(data_dir=corpus, db_path=db, use_llm=False, reset=True)
+    assert summary["documents"] == 5
 
 
 def test_empty_data_dir_produces_a_clean_empty_run(tmp_path, _model_warm):
