@@ -1,0 +1,88 @@
+# Meridian Microsystems — recurring cast for the corpus in data/.
+#
+# Entirely invented: no real people, no real company. The pipeline loads this
+# (app/ingestion/pipeline.py:load_people_directory) so routing rationale can say
+# "Dana Okafor, Staff Motion Control Engineer (Engineering)" instead of a bare name.
+#
+# Names here must match the attendee lines in data/transcripts/*.md and the
+# author lines in data/office/* verbatim, otherwise the person rows split.
+
+Priya Raman:
+  title: VP Engineering
+  department: Engineering
+  email: priya.raman@meridianmicro.io
+
+Tomas Lindqvist:
+  title: Precision Mechanics Lead
+  department: Engineering
+  email: tomas.lindqvist@meridianmicro.io
+
+Dana Okafor:
+  title: Staff Motion Control Engineer
+  department: Engineering
+  email: dana.okafor@meridianmicro.io
+
+Ingrid Lund:
+  title: Contamination Control Engineer
+  department: Engineering
+  email: ingrid.lund@meridianmicro.io
+
+Hassan Idris:
+  title: Site Reliability Engineer, Vantage Platform
+  department: Engineering
+  email: hassan.idris@meridianmicro.io
+
+Claire Dubois:
+  title: QA and Equipment Safety Certification Lead
+  department: Engineering
+  email: claire.dubois@meridianmicro.io
+
+Marcus Feld:
+  title: Director of Product
+  department: Product
+  email: marcus.feld@meridianmicro.io
+
+Elena Vasquez:
+  title: Senior Product Manager, Vantage
+  department: Product
+  email: elena.vasquez@meridianmicro.io
+
+Aisha Bello:
+  title: Head of Customer Success and Field Service
+  department: Sales and CS
+  email: aisha.bello@meridianmicro.io
+
+Ryan Chen:
+  title: Enterprise Account Executive
+  department: Sales and CS
+  email: ryan.chen@meridianmicro.io
+
+Victor Nwosu:
+  title: Applications Engineer, Test Cell Integration
+  department: Sales and CS
+  email: victor.nwosu@meridianmicro.io
+
+Greg Salinas:
+  title: Director of Operations
+  department: Operations
+  email: greg.salinas@meridianmicro.io
+
+Nadia Haddad:
+  title: Supply Chain Manager
+  department: Operations
+  email: nadia.haddad@meridianmicro.io
+
+Yuki Tanaka:
+  title: Chief Financial Officer
+  department: Finance
+  email: yuki.tanaka@meridianmicro.io
+
+Owen Brady:
+  title: Financial Analyst
+  department: Finance
+  email: owen.brady@meridianmicro.io
+
+Sofia Marchetti:
+  title: Talent Acquisition Lead
+  department: People
+  email: sofia.marchetti@meridianmicro.io
