@@ -1,0 +1,226 @@
+# Golden set: the answer-vs-route decision, citation accuracy, and routing
+# target, pinned against the corpus in data/.
+#
+# Every expectation here is derived from the source files, not from what the
+# system currently returns. A case that fails is a regression unless the corpus
+# changed, in which case the corpus change is what needs justifying.
+#
+# See eval/run_eval.py for the field meanings. In short:
+#   expect            answered | routed  -- the decision, checked on both backends
+#   must_cite         substrings of source_path that the citations must include
+#   must_mention      strings the synthesised answer must contain (llm backend only)
+#   route_to          the person a routed query must reach
+#   routes_to_nobody  nothing in the corpus connects anyone to this question
+#   requires: llm     only the model can make this call; offline runs skip it
+
+cases:
+  # ------------------------------------------------ answerable, single source
+  - id: helios3-measured-throughput
+    question: What sustained throughput did we measure on the Helios-3 EFEM?
+    expect: answered
+    must_cite: [helios3-throughput-checkpoint]
+    must_mention: ["412"]
+    why: >
+      Dana Okafor states 412 wafers per hour at full Z stroke on 2026-06-04.
+      The status deck still says 450, so an answer that cites only the deck is
+      wrong even though it is confident.
+
+  - id: helios3-first-customer-ship
+    question: When is Helios-3 first customer ship?
+    expect: answered
+    must_cite: [q3-ops-review-ship-plan]
+    must_mention: ["november"]
+    requires: llm
+    why: >
+      Moved from 30 September to 14 November on 2026-08-13. The status deck
+      carries the old date; recency has to win.
+
+      Model-only, and the reason is worth keeping: retrieval ranks the stale
+      status deck above the ops review for this wording, so the extractive
+      backend cites the deck and answers 30 September -- confidently, with a
+      real citation to a real document, and wrong. Nothing about the decision
+      or the citation shape is broken; the passage that wins is simply the
+      out-of-date one, and only reading across sources catches it.
+
+  - id: encoder-last-time-buy-deadline
+    question: By when must we place the final order for the Brunnen encoder head?
+    expect: answered
+    must_mention: ["november"]
+    why: Brunnen's letter requires a final order by 30 November 2026.
+
+  - id: eu-availability-miss
+    question: Why did the Vantage EU region miss its availability SLA in May?
+    expect: answered
+    must_cite: [vantage-eu-region-incident-postmortem]
+    must_mention: ["47"]
+    why: >
+      A schema migration held an exclusive lock on equipment_state for 47
+      minutes. The OEE spreadsheet has the resulting 99.20% and the 3,400 credit.
+
+      This case was model-only until source trust was made relative to the
+      corpus: at 0.544 it sat a hair under the threshold and the extractive
+      backend routed it. It now clears on both at 0.565, which is thin margin
+      and worth watching -- it is the case that will move first if retrieval
+      changes.
+
+  - id: northgate-wafers-scrapped
+    question: How many wafers did Northgate scrap in the particle excursion?
+    expect: answered
+    must_cite: [northgate]
+    must_mention: ["31"]
+    why: Claire Dubois, 2026-04-16 -- 31 of 75 scrapped, the rest reworked.
+
+  - id: efem-standard-cost
+    question: What is the standard cost of an EFEM?
+    expect: answered
+    must_mention: ["366"]
+    why: >
+      366,000 against a list price of 620,000. Reachable from both the workshop
+      transcript and the cost tracker, which is the cross-source case.
+
+  - id: kaneda-reducer-supply
+    question: How many harmonic drive reducers a month is Kaneda supplying on expedite?
+    expect: answered
+    must_mention: ["six"]
+    why: >
+      Six reducers a month, which is three machines. The BOM's build-rate sheet
+      shows the same constraint as a column of threes, so the figure is
+      reachable from a transcript and a spreadsheet independently.
+
+      No must_cite here, deliberately. Offline, an extractive answer cites the
+      single chunk it quoted, so must_cite degrades to "is the top hit from this
+      file" -- and the top hit is the status deck line about Kaneda being on
+      allocation, which is on topic and does not carry the rate. Asserting a
+      citation this case cannot support offline would be a rule about chunk
+      ranking dressed up as a rule about answers.
+
+  - id: northgate-blade-lot
+    question: Which Cerapoint ceramic blade lot was in the Northgate machine?
+    expect: answered
+    must_cite: [northgate]
+    must_mention: ["cp-220-0413"]
+    why: >
+      Lot CP-220-0413, chamfer out of specification on three of four contact
+      pads. A lot number is the kind of token keyword search finds and
+      embeddings do not, which is what the FTS5 half of retrieval is for.
+
+  # -------------------------------------------- answerable, two causes at once
+  - id: northgate-root-cause
+    question: What was the root cause of the particle excursion at Northgate?
+    expect: answered
+    must_cite_any:
+      - northgate-8d-report
+      - northgate-rca-review
+      - helios3-program-status
+    must_mention: ["chamfer", "gasket"]
+    why: >
+      Two causes, not one: an out-of-specification chamfer on the Cerapoint
+      blade lot, and an unevenly compressed top-plate gasket. An answer naming
+      only the blade is the plausible-and-incomplete failure this case exists
+      to catch.
+
+      Four documents state this at four reliability levels, which is why the
+      citation is an any-of. The first version of this case demanded a
+      northgate-named file and failed against a correct answer: the model cited
+      slide 4 of the status deck, which summarises both causes, the corrective
+      actions and the return to service accurately. That deck is stale about
+      throughput and the ship date and sound about this, so "prefer the
+      authoritative source" is not a rule that can be written per document.
+
+  - id: helios3-rework-kits
+    question: How many rework kits are needed for the top plate fastener change?
+    expect: answered
+    must_cite: [northgate]
+    must_mention: ["four"]
+    why: Four machines already built -- Northgate's pilot, two in the cleanroom, one at Cobalt.
+
+  # ------------------------------------------------- answerable, contradiction
+  - id: vantage-on-premises-release
+    question: Which Vantage release includes on-premises deployment?
+    expect: answered
+    must_mention: ["4.1"]
+    why: >
+      The FY26 roadmap deck shows it at 4.0 GA; the 2026-02-05 scoping meeting
+      moved it to 4.1. The deck is stale and the meeting is the decision.
+
+  - id: helios3-vantage-acceptance
+    question: Is Vantage integration part of the Helios-3 acceptance criteria at Northgate?
+    expect: answered
+    must_cite: [q3-ops-review-ship-plan]
+    must_mention: ["not"]
+    why: >
+      Priya Raman, 2026-08-13: it is not, the January kickoff was explicit, and
+      a newer document saying otherwise is wrong. Two documents disagree on
+      purpose; the system has to pick the one with the decision in it.
+
+  # ----------------------------------------------------- routed: gate 1, no evidence
+  - id: parental-leave-policy
+    question: What is Meridian's parental leave policy?
+    expect: routed
+    routes_to_nobody: true
+    why: >
+      Nothing in the corpus is about benefits. Retrieval alone should fall short
+      here, with no model call spent on it, and no one should be named: the
+      closest passage is a test-cell integration paragraph, and its author has
+      no more to do with parental leave than anyone else in the company.
+
+  - id: aws-monthly-spend
+    question: What do we spend on AWS every month?
+    expect: routed
+    why: >
+      Cloud hosting cost appears nowhere. The FY26 budget has R&D and capex, so
+      a weak answer assembled from adjacent finance rows is the risk.
+
+  - id: helios4-roadmap
+    question: What is on the roadmap for Helios-4?
+    expect: routed
+    requires: llm
+    why: >
+      There is no Helios-4. But "Helios" and "roadmap" both match heavily, so
+      retrieval scores 0.69 and gate 1 waves it through -- this is a gate 2
+      case wearing gate 1 clothing. Offline it comes back answered at 0.581
+      from Helios-3 roadmap material, which is the clearest single illustration
+      in this set of why answerability cannot be a retrieval statistic.
+
+  - id: external-audit-firm
+    question: Which firm audits our financial statements?
+    expect: routed
+    routes_to_nobody: true
+    why: >
+      The corpus has a CFO, a budget and a pipeline review, and no auditor
+      anywhere. Adjacent finance material with no answer in it and nobody it
+      would be reasonable to forward the question to -- proximity to the
+      finance department is not knowledge of who signs the audit.
+
+  # ------------------------------------- routed: gate 2, topic present, answer absent
+  - id: helios3-nine-pass-adders
+    question: What is the nine pass adder number for Helios-3?
+    expect: routed
+    route_to: Ingrid Lund
+    requires: llm
+    why: >
+      Pulls in every particle chunk in the corpus and retrieves strongly, but no
+      document states a nine-pass figure. This is the case that separates "the
+      sources are about this" from "the sources answer this", and the routee is
+      found by walking document_people from the matched passage -- Ingrid Lund
+      explaining adders per pass -- not by asking a model who would know.
+
+  - id: kestrel2-list-price
+    question: What is the list price of a Kestrel-2?
+    expect: routed
+    route_to: Owen Brady
+    requires: llm
+    why: >
+      The corpus has an EFEM list price and a Kestrel-2 development budget.
+      Neither is a Kestrel-2 price. Answering with a cost figure would be the
+      near-miss substitution that citation checking cannot catch: every claim
+      would carry a real citation to a real document and still be wrong.
+
+  - id: cerapoint-contract-terms
+    question: What are the payment terms in our contract with Cerapoint Ceramics?
+    expect: routed
+    requires: llm
+    why: >
+      Cerapoint is all over the corpus as a supplier in a quality escalation.
+      Commercial terms are never stated. Strong retrieval on the supplier name,
+      no answer to the question asked.
