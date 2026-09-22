@@ -482,8 +482,9 @@ it from the source files rather than from what the system currently returns.
 | --- | --- | --- |
 | `run` | `(cases, db_path=None) → list[CaseResult]` | Runs each case through `answer_query`, skipping `requires: llm` when no key is configured. |
 | `_check` | `(case, outcome, backend) → list[str]` | One failure string per broken assertion, so a case reports everything wrong with it at once. |
-| `_bands` | `(results) → dict` | Min/max confidence per outcome and whether the threshold separates them. A gate that only counts passes hides the margin: if the answered floor drifts toward the threshold, the next corpus change flips a query with no test failing first. |
-| `main` | `() → int` | `--golden`, `--db`, `--offline`, `--json`. Non-zero exit on any regression. |
+| `_bands` | `(results) → dict` | Min/max confidence per outcome, whether the threshold separates them, and `narrowest_margin` — the answered case sitting closest to the threshold, named. A gate that only counts passes hides the margin: if the answered floor drifts toward the threshold, the next corpus change flips a query with no test failing first. |
+| `_markdown` | `(results, bands, backend) → str` | The GitHub step summary. Written on failure too, so a red run explains itself on the run page instead of in a log that needs a token to read. |
+| `main` | `() → int` | `--golden`, `--db`, `--offline`, `--json`, `--markdown`. Non-zero exit on any regression. |
 
 ```bash
 python -m eval.run_eval              # whichever backend is configured

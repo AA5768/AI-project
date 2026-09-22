@@ -58,8 +58,15 @@ jobs:
       - name: Unit and API tests
         run: python -m pytest tests -q
 
+      # --markdown puts the confidence bands on the run page itself. A gate
+      # that only reports pass/fail hides how nearly a case failed, and the
+      # first symptom of retrieval drift is the margin above the threshold
+      # shrinking while everything still passes.
       - name: Golden-set answer-quality gate
-        run: python -m eval.run_eval --offline --json eval-results.json
+        run: >
+          python -m eval.run_eval --offline
+          --json eval-results.json
+          --markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Upload eval results
         if: always()

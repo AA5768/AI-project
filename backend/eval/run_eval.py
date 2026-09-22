@@ -166,7 +166,70 @@ def _bands(results: list[CaseResult]) -> dict:
     band["separated"] = bool(
         answered and routed and min(answered) > settings.confidence_threshold >= max(routed)
     )
+
+    # The number to watch across runs. Passing says nothing about how nearly a
+    # case failed, and the first symptom of retrieval drift is this shrinking.
+    closest = min(
+        (r for r in results if r.got == "answered"), key=lambda r: r.confidence, default=None
+    )
+    band["narrowest_margin"] = (
+        {"case": closest.id, "margin": round(closest.confidence - settings.confidence_threshold, 3)}
+        if closest
+        else None
+    )
     return band
+
+
+def _markdown(results: list[CaseResult], bands: dict, backend: str) -> str:
+    """A GitHub step summary, so the bands are readable on the run page.
+
+    The alternative is a log nobody opens and an artifact nobody downloads,
+    which is how a margin quietly shrinking from 0.09 to 0.01 goes unnoticed
+    for as long as the gate keeps passing.
+    """
+    passed = sum(1 for r in results if r.passed)
+    excluded = sum(1 for r in results if r.excluded)
+    failed = sum(1 for r in results if not r.passed and not r.excluded)
+    scored = len(results) - excluded
+
+    headline = f"{'FAILED' if failed else 'passed'} {passed}/{scored}"
+    if excluded:
+        headline += f", {excluded} excluded (model-only)"
+
+    lines = [
+        "### Golden-set answer-quality gate",
+        "",
+        f"**{headline}** &middot; backend `{backend}` "
+        f"&middot; threshold {bands['threshold']}",
+        "",
+        "| outcome | confidence range |",
+        "| --- | --- |",
+    ]
+    for outcome in ("answered", "routed"):
+        span = bands[outcome]
+        lines.append(f"| {outcome} | {f'{span[0]} - {span[1]}' if span else 'none'} |")
+
+    lines.append("")
+    if bands["separated"]:
+        margin = bands["narrowest_margin"]
+        lines.append(
+            f"Bands are separated by the threshold. Narrowest margin above it: "
+            f"**{margin['margin']}** (`{margin['case']}`)."
+        )
+    else:
+        lines.append("**The two bands are not cleanly separated by the threshold.**")
+
+    lines += ["", "<details><summary>All cases</summary>", "", "| case | expect | got | confidence | |", "| --- | --- | --- | --- | --- |"]
+    for r in results:
+        if r.excluded:
+            mark, confidence = "skipped, model-only", "-"
+        elif r.passed:
+            mark, confidence = "ok", f"{r.confidence:.3f}"
+        else:
+            mark, confidence = "**FAIL** " + "; ".join(r.failures), f"{r.confidence:.3f}"
+        lines.append(f"| `{r.id}` | {r.expect} | {r.got} | {confidence} | {mark} |")
+    lines += ["", "</details>", ""]
+    return "\n".join(lines)
 
 
 def _report(results: list[CaseResult], bands: dict) -> None:
@@ -192,6 +255,9 @@ def _report(results: list[CaseResult], bands: dict) -> None:
         f"confidence  answered {bands['answered']}  routed {bands['routed']}  "
         f"threshold {bands['threshold']}"
     )
+    margin = bands["narrowest_margin"]
+    if margin:
+        print(f"narrowest margin above the threshold  {margin['margin']}  ({margin['case']})")
     if not bands["separated"]:
         print("  note: the two bands are not cleanly separated by the threshold")
     if failed:
@@ -207,6 +273,10 @@ def main() -> int:
         help="Ignore any configured API key and use the extractive backend (what CI runs).",
     )
     parser.add_argument("--json", type=Path, default=None, help="Also write results as JSON.")
+    parser.add_argument(
+        "--markdown", type=Path, default=None,
+        help="Append a markdown summary to this file (CI passes $GITHUB_STEP_SUMMARY).",
+    )
     args = parser.parse_args()
 
     if args.offline:
@@ -245,6 +315,11 @@ def main() -> int:
             encoding="utf-8",
         )
         print(f"wrote {args.json.relative_to(PROJECT_ROOT) if args.json.is_absolute() else args.json}")
+
+    if args.markdown:
+        # Appended, not written: $GITHUB_STEP_SUMMARY accumulates across steps.
+        with args.markdown.open("a", encoding="utf-8") as handle:
+            handle.write(_markdown(results, bands, backend))
 
     return 1 if any(not r.passed and not r.excluded for r in results) else 0
 

@@ -149,7 +149,10 @@ outcome the corpus justifies — answered or routed, which sources the citations
 must include, which person a routed query must reach — each with a `why` that
 argues it from the source files rather than from what the system currently
 returns. `eval/run_eval.py` runs them, prints the confidence bands either side
-of the routing threshold, and exits non-zero on any regression.
+of the routing threshold, and exits non-zero on any regression. `--markdown`
+writes those bands to the GitHub run summary, so the number that matters most
+is visible without opening a log: not the pass count but the narrowest margin
+above the threshold, which is what shrinks first when retrieval drifts.
 
 Five cases are marked `requires: llm` and skipped offline. That is not a
 loophole; it is the measurement. They are mostly questions whose sources
