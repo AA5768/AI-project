@@ -1,0 +1,18 @@
+# Tooling that is not needed to run the system, only to regenerate artefacts
+# checked into the repo. Kept out of requirements.txt so CI does not install a
+# browser driver on every run.
+#
+#   pip install -r requirements-dev.txt
+#   python -m scripts.capture_screenshots     # regenerates docs/images/
+
+-r requirements.txt
+
+# Drives an installed Edge or Chrome for the README screenshots. Its own
+# Chromium download uses a Node HTTP client that ignores the OS certificate
+# store, so it fails behind a TLS-intercepting proxy; pass --channel to pick
+# the browser you already have.
+playwright
+
+# Downsamples the captures. Already present transitively via python-pptx;
+# named here because this script imports it directly.
+Pillow
