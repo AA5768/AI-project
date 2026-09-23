@@ -405,8 +405,10 @@ cd backend && python -m eval.run_eval              # Claude backend
 19/19 passed           answered 0.675-0.963   routed 0.252-0.507
 
 cd backend && python -m eval.run_eval --offline    # extractive backend
-14/14 passed, 5 excluded (model-only)
-                       answered 0.565-0.796   routed 0.339-0.426
+16/16 passed, 3 excluded (model-only)
+untested: answerability            helios4-roadmap, helios3-nine-pass-adders
+untested: cross-source-citation    helios3-first-customer-ship
+                       answered 0.565-0.796   routed 0.339-0.507
 ```
 
 The full CI sequence — `--reset --no-llm` ingest → `inspect_db` → pytest → eval gate — was run locally

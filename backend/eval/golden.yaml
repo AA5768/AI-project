@@ -12,6 +12,10 @@
 #   route_to          the person a routed query must reach
 #   routes_to_nobody  nothing in the corpus connects anyone to this question
 #   requires: llm     only the model can make this call; offline runs skip it
+#   blind_spot        required with requires:llm -- names what the offline gate
+#                     is therefore NOT testing. "5 cases skipped" is not a
+#                     reportable state; "2 cases of answerability and 1 of
+#                     cross-source citation are untested" is.
 
 cases:
   # ------------------------------------------------ answerable, single source
@@ -31,6 +35,7 @@ cases:
     must_cite: [q3-ops-review-ship-plan]
     must_mention: ["november"]
     requires: llm
+    blind_spot: cross-source-citation
     why: >
       Moved from 30 September to 14 November on 2026-08-13. The status deck
       carries the old date; recency has to win.
@@ -175,6 +180,7 @@ cases:
     question: What is on the roadmap for Helios-4?
     expect: routed
     requires: llm
+    blind_spot: answerability
     why: >
       There is no Helios-4. But "Helios" and "roadmap" both match heavily, so
       retrieval scores 0.69 and gate 1 waves it through -- this is a gate 2
@@ -198,6 +204,7 @@ cases:
     expect: routed
     route_to: Ingrid Lund
     requires: llm
+    blind_spot: answerability
     why: >
       Pulls in every particle chunk in the corpus and retrieves strongly, but no
       document states a nine-pass figure. This is the case that separates "the
@@ -209,7 +216,6 @@ cases:
     question: What is the list price of a Kestrel-2?
     expect: routed
     route_to: Owen Brady
-    requires: llm
     why: >
       The corpus has an EFEM list price and a Kestrel-2 development budget.
       Neither is a Kestrel-2 price. Answering with a cost figure would be the
@@ -219,7 +225,6 @@ cases:
   - id: cerapoint-contract-terms
     question: What are the payment terms in our contract with Cerapoint Ceramics?
     expect: routed
-    requires: llm
     why: >
       Cerapoint is all over the corpus as a supplier in a quality escalation.
       Commercial terms are never stated. Strong retrieval on the supplier name,

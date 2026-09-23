@@ -154,11 +154,21 @@ writes those bands to the GitHub run summary, so the number that matters most
 is visible without opening a log: not the pass count but the narrowest margin
 above the threshold, which is what shrinks first when retrieval drifts.
 
-Five cases are marked `requires: llm` and skipped offline. That is not a
-loophole; it is the measurement. They are mostly questions whose sources
-discuss the subject at length without answering it, and the extractive fallback
-returns the best passage and calls it an answer, so it cannot get them right.
-Loosening the assertion would hide the one thing this comparison is for.
+Three cases are marked `requires: llm` and skipped offline, and each must
+declare a `blind_spot` naming what its absence leaves untested — the runner
+refuses a golden file where an exclusion does not:
+
+| blind spot | cases | what is therefore ungated offline |
+|---|---|---|
+| `answerability` | `helios4-roadmap`, `helios3-nine-pass-adders` | Sources that discuss the subject at length without answering the question. The extractive fallback returns the best passage and calls it an answer, so it cannot get these right. |
+| `cross-source-citation` | `helios3-first-customer-ship` | Retrieval ranks the stale May status deck above the August ops review, so the extractive path answers *30 September* — confidently, with a real citation to a real document, and wrong. Only reading across sources catches it. |
+
+That list started at five. Two of the five turned out to pass offline all
+along, and were excluded for no reason anyone had checked; a third was
+labelled model-only when its actual problem was the stale-source citation
+above, not semantic judgement. None of that was visible while the report said
+"5 skipped" and nothing else, which is why the field is now mandatory. A gate
+is allowed to have blind spots. It is not allowed to have unnamed ones.
 
 ### CI
 
@@ -189,7 +199,7 @@ the comparison is a comparison rather than a scoreboard:
 
 | | Claude | Extractive |
 |---|---|---|
-| golden set as gated | **19/19** | 14/14 (5 excluded by name) |
+| golden set as gated | **19/19** | 16/16 (3 excluded, each naming its blind spot) |
 | answer-vs-route decision, all 19 | **19/19** | 17/19 |
 | routed to the person the record names | 2/2 | 1/2 |
 | no routee invented for an uncovered question | 2/2 | 2/2 |
@@ -213,7 +223,7 @@ nothing straddling it:
 
 ```
 Claude       answered 0.675 - 0.963      Extractive   answered 0.565 - 0.796
-             routed   0.252 - 0.507                   routed   0.339 - 0.426
+             routed   0.252 - 0.507                   routed   0.339 - 0.507
                             ^ route below 0.55
 ```
 
@@ -424,6 +434,6 @@ makes Part 2's citations and routing checkable rather than generated.
 | **Part 1 — data layer** | **Done.** Exit criteria met against the real corpus on both paths: Claude Haiku enrichment gives 37 documents → 193 chunks, 0 parse failures, avg confidence 0.82; the offline heuristic fallback ingests the same corpus at avg confidence 0.46. Both report traceability chains intact via `python -m scripts.inspect_db`. All 227 stored evidence quotes are byte-exact spans of their source file, and the 16 rows in `people` are exactly the cast in `data/people.yaml` — nothing model-derived creates a person. |
 | **Data corpus** | Authored: 22 transcripts + 15 Office files, 16 recurring people across 6 departments, cross-referenced across sources. Six documents are deliberately degraded (sparse / draft / unattributed) to give Part 2's gap and routing logic something real to fire on. |
 | **Part 2 — API** | **Done.** 134 tests pass (`python -m pytest tests -q`), offline — the model is stubbed, so grounding and the routing rules are pinned without an API key. Exit criteria met: `bash scripts/smoke_test.sh` runs query → citation → `/documents/{id}` → low-confidence routing → simulated send → correction → gap retrieval → metrics against the running API, and asserts each step rather than just printing it. |
-| **Answer-quality gate** | 19 golden questions, 19/19 with Claude and 14/14 on the keyless extractive path (5 model-only cases excluded by name). Confidence bands separate cleanly across the routing threshold on both. Wired to GitHub Actions, which re-ingests the corpus heuristically before grading it so the gate reproduces. |
+| **Answer-quality gate** | 19 golden questions, 19/19 with Claude and 16/16 on the keyless extractive path (3 model-only cases, each declaring what its exclusion leaves untested). Confidence bands separate cleanly across the routing threshold on both. Wired to GitHub Actions, which re-ingests the corpus heuristically before grading it so the gate reproduces. |
 | **MCP server** | Four read-only tools over the same service layer as the HTTP API, with a test asserting both surfaces return the same decision, confidence and citations for the same question. |
 | **Part 3 — UI** | **Done.** Exit criteria met: `npm run dev` serves ask → citation → source drawer → routing → simulated send → correction → review queue against the local API, verified end to end in the browser on all three query outcomes (answered, routed to a person, routed with no owner). The measurement paragraph is in this README and on the Measurement screen beside its live value. |

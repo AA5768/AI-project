@@ -55,6 +55,7 @@ class CaseResult:
     confidence: float
     failures: list[str] = field(default_factory=list)
     excluded: bool = False
+    blind_spot: str | None = None
     person: str | None = None
     citations: list[str] = field(default_factory=list)
 
@@ -112,6 +113,24 @@ def _check(case: dict, outcome, backend: str) -> list[str]:
     return failures
 
 
+def validate(cases: list[dict]) -> None:
+    """Every exclusion has to say what it hides.
+
+    `requires: llm` is the only way a case leaves the offline gate, and an
+    unexplained one is indistinguishable from a case someone excluded because
+    it was failing. Two of the five exclusions here turned out to pass offline
+    all along, and a third was labelled model-only when its actual problem was
+    that the extractive path cites a stale source -- neither was visible while
+    the report said "5 skipped" and nothing else.
+    """
+    missing = [c["id"] for c in cases if c.get("requires") == "llm" and not c.get("blind_spot")]
+    if missing:
+        raise SystemExit(
+            "these cases are excluded from the offline gate without naming what that "
+            "leaves untested; add a blind_spot: " + ", ".join(missing)
+        )
+
+
 def run(cases: list[dict], db_path: Path | None = None) -> list[CaseResult]:
     from app.query.service import answer_query
 
@@ -126,6 +145,7 @@ def run(cases: list[dict], db_path: Path | None = None) -> list[CaseResult]:
                     CaseResult(
                         id=case["id"], question=case["question"], expect=case["expect"],
                         got="-", confidence=0.0, excluded=True,
+                        blind_spot=case["blind_spot"],
                     )
                 )
                 continue
@@ -180,6 +200,15 @@ def _bands(results: list[CaseResult]) -> dict:
     return band
 
 
+def _blind_spots(results: list[CaseResult]) -> dict[str, list[str]]:
+    """What this run did not test, grouped by kind."""
+    grouped: dict[str, list[str]] = {}
+    for r in results:
+        if r.excluded:
+            grouped.setdefault(r.blind_spot or "unlabelled", []).append(r.id)
+    return grouped
+
+
 def _markdown(results: list[CaseResult], bands: dict, backend: str) -> str:
     """A GitHub step summary, so the bands are readable on the run page.
 
@@ -219,10 +248,16 @@ def _markdown(results: list[CaseResult], bands: dict, backend: str) -> str:
     else:
         lines.append("**The two bands are not cleanly separated by the threshold.**")
 
+    blind = _blind_spots(results)
+    if blind:
+        lines += ["", "**Not tested by this run:**"]
+        for kind, ids in sorted(blind.items()):
+            lines.append(f"- {kind} &mdash; " + ", ".join(f"`{i}`" for i in ids))
+
     lines += ["", "<details><summary>All cases</summary>", "", "| case | expect | got | confidence | |", "| --- | --- | --- | --- | --- |"]
     for r in results:
         if r.excluded:
-            mark, confidence = "skipped, model-only", "-"
+            mark, confidence = f"skipped &mdash; {r.blind_spot} untested", "-"
         elif r.passed:
             mark, confidence = "ok", f"{r.confidence:.3f}"
         else:
@@ -238,7 +273,7 @@ def _report(results: list[CaseResult], bands: dict) -> None:
     print("-" * (width + 34))
     for r in results:
         if r.excluded:
-            mark, detail = "skip", "model-only case, offline backend"
+            mark, detail = "skip", f"model-only: leaves {r.blind_spot} untested"
         elif r.passed:
             mark, detail = "ok  ", ""
         else:
@@ -251,6 +286,8 @@ def _report(results: list[CaseResult], bands: dict) -> None:
     scored = len(results) - excluded
 
     print(f"\n{passed}/{scored} passed" + (f", {excluded} excluded (model-only)" if excluded else ""))
+    for kind, ids in sorted(_blind_spots(results).items()):
+        print(f"untested: {kind:<24} {', '.join(ids)}")
     print(
         f"confidence  answered {bands['answered']}  routed {bands['routed']}  "
         f"threshold {bands['threshold']}"
@@ -283,6 +320,7 @@ def main() -> int:
         settings.anthropic_api_key = ""
 
     cases = yaml.safe_load(args.golden.read_text(encoding="utf-8"))["cases"]
+    validate(cases)
     backend = "llm" if settings.has_api_key else "extractive"
     db = args.db or settings.db_path
     print(f"golden set: {len(cases)} cases | backend: {backend} | db: {db}")
