@@ -37,6 +37,7 @@ VIEWPORT = {"width": 1440, "height": 950}
 SCALE = 2
 MAX_WIDTH = 1800
 PALETTE = 192  # flat UI colour; more than this buys nothing visible
+DRAWER_HEIGHT = 1250  # tall enough that the whole modal fits one viewport
 
 ANSWERABLE = "What did we decide about the Northgate particle excursion?"
 ROUTED_TO_PERSON = "What is the nine pass number for Helios-3?"
@@ -55,7 +56,9 @@ def _ask(page: Page, question: str) -> None:
     page.wait_for_timeout(600)
 
 
-def _shot(page: Page, out: Path, name: str, full_page: bool = True) -> None:
+def _shot(page: Page, out: Path, name: str, full_page: bool = True, only: set[str] | None = None) -> None:
+    if only and name not in only:
+        return
     path = out / f"{name}.png"
     page.screenshot(path=str(path), full_page=full_page)
 
@@ -77,7 +80,7 @@ def _shot(page: Page, out: Path, name: str, full_page: bool = True) -> None:
     print(f"  wrote {path.relative_to(REPO_ROOT).as_posix()}  ({path.stat().st_size // 1024} KB)")
 
 
-def capture(base_url: str, out: Path, channel: str) -> None:
+def capture(base_url: str, out: Path, channel: str, only: set[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
@@ -87,7 +90,7 @@ def capture(base_url: str, out: Path, channel: str) -> None:
 
         # 1. An answered question: claims carrying the citations for that claim.
         _ask(page, ANSWERABLE)
-        _shot(page, out, "ask-answered")
+        _shot(page, out, "ask-answered", only=only)
 
         # 2. The same answer with the confidence derivation opened, because the
         #    number is the point and "trust me" is not.
@@ -95,14 +98,24 @@ def capture(base_url: str, out: Path, channel: str) -> None:
         if breakdown.count():
             breakdown.first.click()
             page.wait_for_timeout(400)
-            _shot(page, out, "ask-confidence")
+            _shot(page, out, "ask-confidence", only=only)
 
         # 3. The source behind a citation, opened from the marker itself.
+        #
+        # Captured viewport-only, and this one matters: the drawer's backdrop is
+        # position:fixed, so it covers one viewport height and no more. A
+        # full-page capture of a modal therefore comes out half dimmed and half
+        # bright, with the drawer sliced off at the fold -- it looks like a
+        # rendering bug rather than a feature. Taller viewport so the whole
+        # panel fits in that one screen.
         marker = page.locator("button", has_text="1").first
         try:
             marker.click(timeout=5_000)
             page.wait_for_timeout(800)
-            _shot(page, out, "source-drawer")
+            page.set_viewport_size({"width": VIEWPORT["width"], "height": DRAWER_HEIGHT})
+            page.wait_for_timeout(500)
+            _shot(page, out, "source-drawer", full_page=False, only=only)
+            page.set_viewport_size(VIEWPORT)
             page.keyboard.press("Escape")
             page.wait_for_timeout(400)
         except Exception as exc:  # noqa: BLE001 - one missing shot is not a failure
@@ -110,22 +123,22 @@ def capture(base_url: str, out: Path, channel: str) -> None:
 
         # 4. Routed to a person, with the passage that chose them.
         _ask(page, ROUTED_TO_PERSON)
-        _shot(page, out, "routed-to-person")
+        _shot(page, out, "routed-to-person", only=only)
 
         # 5. Routed to nobody. The most load-bearing screenshot here: it is the
         #    visible form of "no one is named when the corpus connects no one".
         _ask(page, ROUTED_TO_NOBODY)
-        _shot(page, out, "routed-to-nobody")
+        _shot(page, out, "routed-to-nobody", only=only)
 
         # 6. The triage queue those routed questions land in.
         page.get_by_role("button", name="Review queue").click()
         page.wait_for_timeout(1_200)
-        _shot(page, out, "review-queue")
+        _shot(page, out, "review-queue", only=only)
 
         # 7. The first-30-days metric beside its live value.
         page.get_by_role("button", name="Measurement").click()
         page.wait_for_timeout(1_200)
-        _shot(page, out, "measurement")
+        _shot(page, out, "measurement", only=only)
 
         browser.close()
 
@@ -135,6 +148,10 @@ def main() -> int:
     parser.add_argument("--url", default="http://localhost:5173")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument(
+        "--only", nargs="*", default=None,
+        help="Only write these shots by name; the others are still driven, just not saved.",
+    )
+    parser.add_argument(
         "--channel", default="msedge",
         help="Installed browser Playwright should drive: msedge or chrome.",
     )
@@ -142,7 +159,7 @@ def main() -> int:
 
     print(f"capturing from {args.url} using {args.channel}")
     try:
-        capture(args.url, args.out, args.channel)
+        capture(args.url, args.out, args.channel, set(args.only) if args.only else None)
     except Exception as exc:  # noqa: BLE001
         print(f"\nfailed: {type(exc).__name__}: {exc}")
         print("Is the UI running on that URL, and the API on :8000?")

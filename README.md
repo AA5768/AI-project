@@ -192,10 +192,10 @@ Three screens, no state library — each one owns a single request:
 **Opening a citation.** A citation is only checkable if the thing it points at
 can be opened, so every marker does. The drawer below was opened from marker
 `[1]`: it loads the whole source document, scrolls to the cited chunk and marks
-it, and shows the slides either side of it — including the speaker note saying
-the throughput figure on that deck is *"the committed number from the January
-kickoff, not a measurement"*. The confidence derivation is expanded underneath,
-every term of it.
+it `CITED`, and keeps the slides either side of it in view — including the
+speaker note admitting the throughput figure on that deck is *"the committed
+number from the January kickoff, not a measurement"*, which is the sort of
+thing a summary drops and a provenance view must not.
 
 [![Source drawer opened from a citation marker, scrolled to the cited slide](docs/images/source-drawer.png)](docs/images/source-drawer.png)
 
@@ -414,6 +414,17 @@ from, and every citation is checked back against the retrieved set. The grounded
 fraction discounts the retrieval score (`confidence = retrieval × (0.35 + 0.65 ×
 grounded)`), and an answer the sources don't support drops that query to 0.28 and
 routes it.
+
+Neither gate is asserted to the user. Every term of both is on screen, because
+a confidence score nobody can derive is decoration:
+
+[![The confidence derivation, expanded: every term of both gates](docs/images/ask-confidence.png)](docs/images/ask-confidence.png)
+
+<sub>`0.92` top similarity, `0.65` support, `0.67` corroboration and `0.89`
+source trust give a retrieval score of `0.82`; the drafted answer came back
+fully grounded, so the gate-2 multiplier is `1.00` and the score survives
+intact at `0.82`. Also on the line: 7 documents matched, 8 chunks retrieved,
+`claude-sonnet-5`, 8495 ms.</sub>
 
 ### How routing picks a person
 
