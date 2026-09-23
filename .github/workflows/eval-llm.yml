@@ -1,0 +1,101 @@
+name: Answer-quality gate (real model)
+
+# The CI workflow runs with no API key, which is what makes it free and what
+# makes it run on every push. The price is that three golden cases are excluded
+# from it, and two of those are the ones that matter most: whether the model
+# correctly judges that evidence does not answer a question. Nothing in CI
+# exercises that. This workflow does.
+#
+# It is also the only thing here that can notice the model getting worse. Every
+# other check pins our code; this one pins the judgement our code delegates.
+#
+# Weekly rather than per-push because it costs money and because model
+# behaviour does not change between commits. Manually dispatchable for when it
+# does -- a prompt edit, a model id bump, a corpus change that moves retrieval.
+#
+# Cost per run: 37 Haiku calls to enrich the corpus, ~19 Sonnet calls to
+# synthesise, plus one Sonnet call per routed case to phrase its draft
+# question. Cents.
+#
+# Deliberately not triggered by pull_request: secrets are not exposed to forked
+# PRs, so it would fall back to the extractive backend and report a green run
+# that tested nothing. --require-llm makes that failure loud wherever it
+# happens instead of silent.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-llm
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail in five seconds rather than three minutes into a dependency
+      # install, and say which of the two likely causes it is.
+      - name: Check the API key reached this job
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is empty. Either the repository secret" \
+                 "does not exist, or this run was triggered in a context that does" \
+                 "not receive secrets (a forked pull request)."
+            exit 1
+          fi
+          echo "key present (${#ANTHROPIC_API_KEY} characters)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-${{ runner.os }}
+
+      # --llm, not --no-llm. The golden expectations for the model backend were
+      # measured against a Claude-enriched corpus, and enrichment confidence
+      # feeds the retrieval weighting, so grading a heuristically-enriched
+      # database against them would be the same mismatch the main CI workflow
+      # exists to avoid. This is meant to be the real deployment.
+      - name: Ingest the corpus (Claude enrichment)
+        run: python -m app.ingestion.pipeline --reset --llm
+
+      - name: Verify traceability chains
+        run: python -m scripts.inspect_db
+
+      - name: Golden-set answer-quality gate, all 19 cases
+        run: >
+          python -m eval.run_eval
+          --require-llm
+          --json eval-results-llm.json
+          --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-llm
+          path: backend/eval-results-llm.json
+          if-no-files-found: ignore

@@ -12,7 +12,8 @@ into one system. See [PROJECT_INSTRUCTIONS.md](PROJECT_INSTRUCTIONS.md) for the 
 - **LLM**: Claude via the Anthropic API (Haiku for enrichment, Sonnet for query synthesis/routing)
 - **API**: FastAPI, plus an MCP server over the same service layer
 - **UI**: React + Vite
-- **Gate**: golden answer-quality eval, run in GitHub Actions with no API key
+- **Gates**: a golden answer-quality eval — keyless on every push, and weekly
+  against the real model for the judgement the keyless one cannot reach
 
 ## Repo layout
 
@@ -27,7 +28,8 @@ backend/scripts/         # corpus generator + db inspector
 frontend/                # React app
 docs/                    # API + function reference
 scripts/smoke_test.sh    # end-to-end API smoke test
-.github/workflows/ci.yml # ingest -> tests -> eval gate, no API key
+.github/workflows/       # ci.yml: ingest -> tests -> eval gate, no API key
+                         # eval-llm.yml: weekly, all 19 cases, real model
 ```
 
 ## Documentation
@@ -169,6 +171,15 @@ labelled model-only when its actual problem was the stale-source citation
 above, not semantic judgement. None of that was visible while the report said
 "5 skipped" and nothing else, which is why the field is now mandatory. A gate
 is allowed to have blind spots. It is not allowed to have unnamed ones.
+
+The blind spots are covered by a second workflow rather than merely declared:
+[`.github/workflows/eval-llm.yml`](.github/workflows/eval-llm.yml) ingests with
+Claude and grades all 19 cases with the real model, weekly and on demand. It is
+the only check here that pins the judgement the system delegates instead of the
+code around it, and the only one that can notice the model itself getting
+worse. It needs an `ANTHROPIC_API_KEY` repository secret, and `--require-llm`
+makes a missing one a loud failure: a gate that exists to exercise the model
+must not be able to pass without calling it.
 
 ### CI
 
@@ -434,6 +445,6 @@ makes Part 2's citations and routing checkable rather than generated.
 | **Part 1 — data layer** | **Done.** Exit criteria met against the real corpus on both paths: Claude Haiku enrichment gives 37 documents → 193 chunks, 0 parse failures, avg confidence 0.82; the offline heuristic fallback ingests the same corpus at avg confidence 0.46. Both report traceability chains intact via `python -m scripts.inspect_db`. All 227 stored evidence quotes are byte-exact spans of their source file, and the 16 rows in `people` are exactly the cast in `data/people.yaml` — nothing model-derived creates a person. |
 | **Data corpus** | Authored: 22 transcripts + 15 Office files, 16 recurring people across 6 departments, cross-referenced across sources. Six documents are deliberately degraded (sparse / draft / unattributed) to give Part 2's gap and routing logic something real to fire on. |
 | **Part 2 — API** | **Done.** 134 tests pass (`python -m pytest tests -q`), offline — the model is stubbed, so grounding and the routing rules are pinned without an API key. Exit criteria met: `bash scripts/smoke_test.sh` runs query → citation → `/documents/{id}` → low-confidence routing → simulated send → correction → gap retrieval → metrics against the running API, and asserts each step rather than just printing it. |
-| **Answer-quality gate** | 19 golden questions, 19/19 with Claude and 16/16 on the keyless extractive path (3 model-only cases, each declaring what its exclusion leaves untested). Confidence bands separate cleanly across the routing threshold on both. Wired to GitHub Actions, which re-ingests the corpus heuristically before grading it so the gate reproduces. |
+| **Answer-quality gate** | 19 golden questions, 19/19 with Claude and 16/16 on the keyless extractive path (3 model-only cases, each declaring what its exclusion leaves untested; a weekly workflow grades all 19 against the real model). Confidence bands separate cleanly across the routing threshold on both. Wired to GitHub Actions, which re-ingests the corpus heuristically before grading it so the gate reproduces. |
 | **MCP server** | Four read-only tools over the same service layer as the HTTP API, with a test asserting both surfaces return the same decision, confidence and citations for the same question. |
 | **Part 3 — UI** | **Done.** Exit criteria met: `npm run dev` serves ask → citation → source drawer → routing → simulated send → correction → review queue against the local API, verified end to end in the browser on all three query outcomes (answered, routed to a person, routed with no owner). The measurement paragraph is in this README and on the Measurement screen beside its live value. |

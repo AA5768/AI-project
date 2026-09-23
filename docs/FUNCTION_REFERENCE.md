@@ -484,7 +484,9 @@ it from the source files rather than from what the system currently returns.
 | `_check` | `(case, outcome, backend) → list[str]` | One failure string per broken assertion, so a case reports everything wrong with it at once. |
 | `_bands` | `(results) → dict` | Min/max confidence per outcome, whether the threshold separates them, and `narrowest_margin` — the answered case sitting closest to the threshold, named. A gate that only counts passes hides the margin: if the answered floor drifts toward the threshold, the next corpus change flips a query with no test failing first. |
 | `_markdown` | `(results, bands, backend) → str` | The GitHub step summary. Written on failure too, so a red run explains itself on the run page instead of in a log that needs a token to read. |
-| `main` | `() → int` | `--golden`, `--db`, `--offline`, `--json`, `--markdown`. Non-zero exit on any regression. |
+| `validate` | `(cases) → None` | Refuses a golden file where a `requires: llm` case does not declare a `blind_spot`. An unexplained exclusion is indistinguishable from one added because the case was failing. |
+| `_blind_spots` | `(results) → dict` | Exclusions grouped by what they leave untested, for the report and the step summary. |
+| `main` | `() → int` | `--golden`, `--db`, `--offline`, `--json`, `--markdown`, `--require-llm`. Non-zero exit on any regression. |
 
 ```bash
 python -m eval.run_eval              # whichever backend is configured
@@ -545,7 +547,8 @@ the method table.
 | `backend/scripts/generate_office_corpus.py` | Authors `data/office/*.docx\|pptx\|xlsx` from source text held in the script — the binaries' reviewable form. Idempotent: every file is rewritten from scratch. |
 | `backend/scripts/inspect_db.py` | Proves the populated DB has correct traceability chains without the API — checks, not just counts, so an orphaned chunk or a citation resolving to nothing is caught. Run `python -m scripts.inspect_db` from `backend/`. |
 | `scripts/smoke_test.sh` | End-to-end API smoke test against a running server. |
-| `.github/workflows/ci.yml` | Ingest (heuristic, no key) → `inspect_db` → pytest → eval gate, plus a frontend lint and build. |
+| `.github/workflows/ci.yml` | Ingest (heuristic, no key) → `inspect_db` → pytest → eval gate, plus a frontend lint and build. Runs on every push and PR. |
+| `.github/workflows/eval-llm.yml` | Weekly and on demand: ingest with Claude → `inspect_db` → all 19 golden cases against the real model. Covers the blind spots the keyless gate declares. `--require-llm` makes a missing secret fail loudly rather than silently grading the extractive backend. Not triggered by `pull_request`, because secrets do not reach forked PRs. |
 
 Test modules mirror the packages: `test_parsers.py`, `test_pipeline.py`,
 `test_enrichment.py`, `test_grounding.py`, `test_search.py`,

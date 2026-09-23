@@ -314,10 +314,26 @@ def main() -> int:
         "--markdown", type=Path, default=None,
         help="Append a markdown summary to this file (CI passes $GITHUB_STEP_SUMMARY).",
     )
+    parser.add_argument(
+        "--require-llm", action="store_true",
+        help="Fail unless the model backend is actually in use. For the scheduled gate.",
+    )
     args = parser.parse_args()
 
     if args.offline:
         settings.anthropic_api_key = ""
+
+    # Without this, a scheduled run whose secret has expired, been renamed or
+    # never reached the runner falls back to the extractive backend, skips the
+    # three model-only cases, reports 16/16 and goes green -- a gate whose
+    # entire purpose is to exercise the model, passing without calling it. A
+    # capability check that does not exercise the capability is not a check.
+    if args.require_llm and not settings.has_api_key:
+        raise SystemExit(
+            "--require-llm was passed but no ANTHROPIC_API_KEY is configured, so this "
+            "run would silently grade the extractive backend instead of the model. "
+            "Check that the repository secret exists and is exposed to this job."
+        )
 
     cases = yaml.safe_load(args.golden.read_text(encoding="utf-8"))["cases"]
     validate(cases)
